@@ -94,6 +94,7 @@ class Periodic(tf.keras.layers.Layer):
 
 
 class NEmbedding(tf.keras.Model):
+    MASK_VALUE = -9999
     def __init__(
         self,
         feature_names: list,
@@ -150,12 +151,32 @@ class NEmbedding(tf.keras.Model):
                     shape=(self.num_features, 1), dtype='float32' # features, n_bins, emb_dim
                 ), trainable=True)
     
+    def mask_inputs(self, inputs, mask_prob=0.15):
+        """
+        Randomly mask input values
+        """
+        
+        # Create a mask tensor of the same shape as inputs
+        mask = tf.random.uniform(shape=tf.shape(inputs)) < mask_prob
+
+        # Replace masked values with mask token
+        masked_inputs = tf.where(mask, self.MASK_VALUE, inputs)
+
+        self.mask = mask
+        self.masked_inputs = masked_inputs
+
+    @property
+    def get_mask(self):
+        return self.masked_inputs, self.mask
     
     def embed_column(self, f, data):
         emb = self.linear_layers[f](self.embedding_layers[f](data))
         return emb
    
     def call(self, x):
+        self.mask_inputs(x)
+        x = self.masked_inputs
+
         if self.emb_type == 'ple':
             emb_columns = []
             for i, f in enumerate(self.features):

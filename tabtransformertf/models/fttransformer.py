@@ -8,6 +8,7 @@ from tensorflow.keras.layers import (
 import math as m
 from tabtransformertf.models.embeddings import CEmbedding, NEmbedding
 
+
 class FTTransformerEncoder(tf.keras.Model):
     def __init__(
         self,
@@ -54,16 +55,16 @@ class FTTransformerEncoder(tf.keras.Model):
         self.explainable = explainable
         self.depth = depth
         self.heads = heads
-            
+
         # Two main embedding modules
         if len(self.numerical) > 0:
             self.numerical_embeddings = NEmbedding(
-                feature_names=self.numerical, 
-                X=numerical_data, 
+                feature_names=self.numerical,
+                X=numerical_data,
                 y=y,
                 task=task,
-                emb_dim=embedding_dim, 
-                emb_type=numerical_embedding_type, 
+                emb_dim=embedding_dim,
+                emb_type=numerical_embedding_type,
                 n_bins=numerical_bins,
                 tree_params=ple_tree_params
             )
@@ -71,7 +72,7 @@ class FTTransformerEncoder(tf.keras.Model):
             self.categorical_embeddings = CEmbedding(
                 feature_names=self.categorical,
                 X=categorical_data,
-                emb_dim =embedding_dim
+                emb_dim=embedding_dim
             )
 
         # Transformers
@@ -99,20 +100,21 @@ class FTTransformerEncoder(tf.keras.Model):
 
     def call(self, inputs):
         # Start with CLS token
-        cls_tokens = tf.repeat(self.cls_weights, repeats=tf.shape(inputs[self.numerical[0]])[0], axis=0)
+        cls_tokens = tf.repeat(self.cls_weights, repeats=tf.shape(
+            inputs[self.numerical[0]])[0], axis=0)
         cls_tokens = tf.expand_dims(cls_tokens, axis=1)
         transformer_inputs = [cls_tokens]
-    
+
         # If categorical features, add to list
         if len(self.categorical) > 0:
             cat_input = []
             for c in self.categorical:
                 cat_input.append(inputs[c])
-            
+
             cat_input = tf.stack(cat_input, axis=1)[:, :, 0]
             cat_embs = self.categorical_embeddings(cat_input)
             transformer_inputs += [cat_embs]
-        
+
         # If numerical features, add to list
         if len(self.numerical) > 0:
             num_input = []
@@ -121,16 +123,18 @@ class FTTransformerEncoder(tf.keras.Model):
             num_input = tf.stack(num_input, axis=1)[:, :, 0]
             num_embs = self.numerical_embeddings(num_input)
             transformer_inputs += [num_embs]
-        
+
         # Prepare for Transformer
         transformer_inputs = tf.concat(transformer_inputs, axis=1)
         importances = []
-        
+
         # Pass through Transformer blocks
         for transformer in self.transformers:
             if self.explainable:
-                transformer_inputs, att_weights = transformer(transformer_inputs)
-                importances.append(tf.reduce_sum(att_weights[:, :, 0, :], axis=1))
+                transformer_inputs, att_weights = transformer(
+                    transformer_inputs)
+                importances.append(tf.reduce_sum(
+                    att_weights[:, :, 0, :], axis=1))
             else:
                 transformer_inputs = transformer(transformer_inputs)
 
@@ -169,24 +173,25 @@ class FTTransformer(tf.keras.Model):
             self.encoder = encoder
         else:
             self.encoder = FTTransformerEncoder(
-                categorical_features = categorical_features,
-                numerical_features = numerical_features,
-                categorical_lookup = categorical_lookup,
-                embedding_dim = embedding_dim,
-                depth = depth,
-                heads = heads,
-                attn_dropout = attn_dropout,
-                ff_dropout = ff_dropout,
-                numerical_embedding_type = numerical_embedding_type,
-                numerical_embeddings = numerical_embeddings,
-                explainable = explainable,
+                categorical_features=categorical_features,
+                numerical_features=numerical_features,
+                categorical_lookup=categorical_lookup,
+                embedding_dim=embedding_dim,
+                depth=depth,
+                heads=heads,
+                attn_dropout=attn_dropout,
+                ff_dropout=ff_dropout,
+                numerical_embedding_type=numerical_embedding_type,
+                numerical_embeddings=numerical_embeddings,
+                explainable=explainable,
             )
 
         # mlp layers
         self.ln = tf.keras.layers.LayerNormalization()
         self.final_ff = Dense(embedding_dim//2, activation='relu')
         self.output_layer = Dense(out_dim, activation=out_activation)
-    
+        self.masked_predictions_layer = Dense(1, activation='sigmoid')
+
     def call(self, inputs):
         if self.encoder.explainable:
             x, expl = self.encoder(inputs)
@@ -196,9 +201,44 @@ class FTTransformer(tf.keras.Model):
         layer_norm_cls = self.ln(x[:, 0, :])
         layer_norm_cls = self.final_ff(layer_norm_cls)
         output = self.output_layer(layer_norm_cls)
+        masked_inputs, mask = self.encoder.numerical_embeddings.get_mask()
+        masked_preds = self.masked_predictions_layer(x)
+
+        output = {"output": output, "masked_preds": masked_preds}
 
         if self.encoder.explainable:
             # Explaianble models return two outputs
             return {"output": output, "importances": expl}
         else:
             return output
+
+    def train_step(self, data):
+        x, y = data
+
+        with tf.GradientTape() as tape:
+            y_pred = self(x, training=True)  # Forward pass
+
+            # Compute the loss value.
+            # The loss function is configured in `compile()`.
+            loss = self.compiled_loss(
+                y, y_pred["output"], regularization_losses=self.losses)
+
+            # Add masked prediction loss
+            masked_preds = self.masked_predictions_layer(x)
+            masked_loss = self.masked_loss(masked_preds, y_pred["masked_output"])
+            total_loss = loss + 0.1 * masked_loss
+
+        # Compute gradients
+        trainable_vars = self.trainable_variables
+        gradients = tape.gradient(total_loss, trainable_vars)
+
+        # Update weights
+        self.optimizer.apply_gradients(zip(gradients, trainable_vars))
+
+        # Update the metrics.
+        # Metrics are configured in `compile()`.
+        self.compiled_metrics.update_state(y, y_pred["output"])
+
+        # Return a dict mapping metric names to current value.
+        # Note that it will include the loss (tracked in self.metrics).
+        return {m.name: m.result() for m in self.metrics}
