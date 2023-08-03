@@ -159,6 +159,9 @@ class NEmbedding(tf.keras.Model):
         # Create a mask tensor of the same shape as inputs
         mask = tf.random.uniform(shape=tf.shape(inputs)) < mask_prob
 
+        # Store the original inputs before masking
+        self.original_inputs = tf.identity(inputs)
+
         # Replace masked values with mask token
         masked_inputs = tf.where(mask, self.MASK_VALUE, inputs)
 
@@ -167,7 +170,7 @@ class NEmbedding(tf.keras.Model):
 
     @property
     def get_mask(self):
-        return self.masked_inputs, self.mask
+        return self.masked_inputs, self.mask, self.original_inputs
     
     def embed_column(self, f, data):
         emb = self.linear_layers[f](self.embedding_layers[f](data))
