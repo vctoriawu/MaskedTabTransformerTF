@@ -18,13 +18,13 @@ def df_to_dataset(
         labels = df.pop(target)
         dataset = {}
         for key, value in df.items():
-            dataset[key] = value[:, tf.newaxis]
+            dataset[key] = value.to_numpy()[:, tf.newaxis]
 
         dataset = tf.data.Dataset.from_tensor_slices((dict(dataset), labels))
     else:
         dataset = {}
         for key, value in df.items():
-            dataset[key] = value[:, tf.newaxis]
+            dataset[key] = value.to_numpy()[:, tf.newaxis]
 
         dataset = tf.data.Dataset.from_tensor_slices(dict(dataset))
 
@@ -74,7 +74,7 @@ def df_to_pretrain_dataset(
 
     dataset = {}
     for key, value in x.items():
-        dataset[key] = value[:, tf.newaxis]
+        dataset[key] = value.to_numpy()[:, tf.newaxis]
 
     dataset = tf.data.Dataset.from_tensor_slices((dict(dataset), y))
 
