@@ -181,7 +181,6 @@ class FTTransformer(tf.keras.Model):
                 attn_dropout=attn_dropout,
                 ff_dropout=ff_dropout,
                 numerical_embedding_type=numerical_embedding_type,
-                numerical_embeddings=numerical_embeddings,
                 explainable=explainable,
             )
 
