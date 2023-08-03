@@ -175,7 +175,6 @@ class FTTransformer(tf.keras.Model):
             self.encoder = FTTransformerEncoder(
                 categorical_features=categorical_features,
                 numerical_features=numerical_features,
-                categorical_lookup=categorical_lookup,
                 embedding_dim=embedding_dim,
                 depth=depth,
                 heads=heads,
