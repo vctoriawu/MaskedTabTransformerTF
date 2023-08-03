@@ -190,7 +190,8 @@ class FTTransformer(tf.keras.Model):
         self.ln = tf.keras.layers.LayerNormalization()
         self.final_ff = Dense(embedding_dim//2, activation='relu')
         self.output_layer = Dense(out_dim, activation=out_activation)
-        self.masked_predictions_layer = Dense(len(numerical_features) + len(categorical_features))
+        self.masked_predictions_layer = Dense((len(numerical_features) if numerical_features is not None else 0) +
+                                              (len(categorical_features) if categorical_features is not None else 0))
 
     def call(self, inputs):
         if self.encoder.explainable:
@@ -206,7 +207,7 @@ class FTTransformer(tf.keras.Model):
 
         # Get only the representations corresponding to the masked values
         masked_reprs = tf.boolean_mask(x, mask, axis=1)
-        
+
         # Apply 'masked_predictions_layer' to reconstruct the masked features
         masked_preds = self.masked_predictions_layer(masked_reprs)
 
@@ -229,13 +230,14 @@ class FTTransformer(tf.keras.Model):
 
             # Compute the loss value.
             # The loss function is configured in `compile()`.
-            loss = self.compiled_loss(y, y_pred["output"], regularization_losses=self.losses)
+            loss = self.compiled_loss(
+                y, y_pred["output"], regularization_losses=self.losses)
 
             # Add masked prediction loss
             masked_inputs, mask, original_inputs = self.encoder.numerical_embeddings.get_mask()
             true_masked_vals = tf.boolean_mask(original_inputs, mask, axis=1)
 
-            # You might need to extract 'masked_preds' from 'y_pred' if it contains the masked predictions. 
+            # You might need to extract 'masked_preds' from 'y_pred' if it contains the masked predictions.
             # If 'masked_preds' is not in 'y_pred', you need to ensure it's calculated in your forward pass.
             masked_preds = y_pred.get('masked_preds', None)
             if masked_preds is not None:
@@ -258,4 +260,3 @@ class FTTransformer(tf.keras.Model):
         # Return a dict mapping metric names to current value.
         # Note that it will include the loss (tracked in self.metrics).
         return {m.name: m.result() for m in self.metrics}
-
