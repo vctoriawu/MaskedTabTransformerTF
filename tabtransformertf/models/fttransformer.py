@@ -100,10 +100,11 @@ class FTTransformerEncoder(tf.keras.Model):
 
     def call(self, inputs):
         # Start with CLS token
-        cls_tokens = tf.repeat(self.cls_weights, repeats=tf.shape(
-            inputs[self.numerical[0]])[0], axis=0)
-        cls_tokens = tf.expand_dims(cls_tokens, axis=1)
-        transformer_inputs = [cls_tokens]
+        # cls_tokens = tf.repeat(self.cls_weights, repeats=tf.shape(
+        #     inputs[self.numerical[0]])[0], axis=0)
+        # cls_tokens = tf.expand_dims(cls_tokens, axis=1)
+        # transformer_inputs = [cls_tokens]
+        transformer_inputs = []
 
         # If categorical features, add to list
         if len(self.categorical) > 0:
@@ -188,26 +189,23 @@ class FTTransformer(tf.keras.Model):
         self.ln = tf.keras.layers.LayerNormalization()
         self.final_ff = Dense(embedding_dim//2, activation='relu')
         self.output_layer = Dense(out_dim, activation=out_activation)
-        self.masked_predictions_layer = Dense((len(numerical_features) if numerical_features is not None else 0) +
-                                              (len(categorical_features) if categorical_features is not None else 0))
+        num_features = (len(numerical_features) if numerical_features is not None else 0) + \
+               (len(categorical_features) if categorical_features is not None else 0)
+
+        self.masked_predictions_layer = Dense(units=num_features)
+
 
     def call(self, inputs):
+        masked_inputs, mask = self.encoder.numerical_embeddings.get_mask
         if self.encoder.explainable:
-            x, expl = self.encoder(inputs)
+            x, expl = self.encoder(masked_inputs)
         else:
-            x = self.encoder(inputs)
+            x = self.encoder(masked_inputs)
 
         layer_norm_cls = self.ln(x[:, 0, :])
         layer_norm_cls = self.final_ff(layer_norm_cls)
         output = self.output_layer(layer_norm_cls)
-        masked_inputs, mask, original_inputs = self.encoder.numerical_embeddings.get_mask()
         masked_preds = self.masked_predictions_layer(x)
-
-        # Get only the representations corresponding to the masked values
-        masked_reprs = tf.boolean_mask(x, mask, axis=1)
-
-        # Apply 'masked_predictions_layer' to reconstruct the masked features
-        masked_preds = self.masked_predictions_layer(masked_reprs)
 
         output_dict = {"output": output, "masked_preds": masked_preds}
 

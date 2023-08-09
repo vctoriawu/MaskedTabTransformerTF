@@ -45,9 +45,10 @@ class PLE(tf.keras.layers.Layer):
 
         for i in range(1, self.n_bins + 1):
             i = tf.constant(i)
-            left_mask = (x < self.lookup_table.lookup(i - 1)) & (i > 1)
-            right_mask = (x >= self.lookup_table.lookup(i)) & (i < self.n_bins)
-            v = (x - self.lookup_table.lookup(i - 1)) / (
+            x_float = tf.cast(x, dtype=tf.float32)
+            left_mask = (x_float < self.lookup_table.lookup(i - 1)) & (i > 1)
+            right_mask = (x_float >= self.lookup_table.lookup(i)) & (i < self.n_bins)
+            v = (x_float - self.lookup_table.lookup(i - 1)) / (
                 self.lookup_table.lookup(i) - self.lookup_table.lookup(i - 1)
             )
             left_masks = left_masks.write(left_masks.size(), left_mask)
@@ -159,9 +160,6 @@ class NEmbedding(tf.keras.Model):
         # Create a mask tensor of the same shape as inputs
         mask = tf.random.uniform(shape=tf.shape(inputs)) < mask_prob
 
-        # Store the original inputs before masking
-        self.original_inputs = tf.identity(inputs)
-
         # Replace masked values with mask token
         masked_inputs = tf.where(mask, self.MASK_VALUE, inputs)
 
@@ -170,7 +168,7 @@ class NEmbedding(tf.keras.Model):
 
     @property
     def get_mask(self):
-        return self.masked_inputs, self.mask, self.original_inputs
+        return self.masked_inputs, self.mask
     
     def embed_column(self, f, data):
         emb = self.linear_layers[f](self.embedding_layers[f](data))
