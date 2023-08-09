@@ -48,7 +48,7 @@ class PLE(tf.keras.layers.Layer):
             x_float = tf.cast(x, dtype=tf.float32)
             left_mask = (x_float < self.lookup_table.lookup(i - 1)) & (i > 1)
             right_mask = (x_float >= self.lookup_table.lookup(i)) & (i < self.n_bins)
-            v = (x_float - self.lookup_table.lookup(i - 1)) / (
+            v = (x - self.lookup_table.lookup(i - 1)) / (
                 self.lookup_table.lookup(i) - self.lookup_table.lookup(i - 1)
             )
             left_masks = left_masks.write(left_masks.size(), left_mask)
