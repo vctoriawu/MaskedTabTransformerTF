@@ -196,11 +196,10 @@ class FTTransformer(tf.keras.Model):
 
 
     def call(self, inputs):
-        masked_inputs, mask = self.encoder.numerical_embeddings.get_mask
         if self.encoder.explainable:
-            x, expl = self.encoder(masked_inputs)
+            x, expl = self.encoder(inputs)
         else:
-            x = self.encoder(masked_inputs)
+            x = self.encoder(inputs)
 
         layer_norm_cls = self.ln(x[:, 0, :])
         layer_norm_cls = self.final_ff(layer_norm_cls)
