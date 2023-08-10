@@ -189,8 +189,8 @@ class FTTransformer(tf.keras.Model):
         self.ln = tf.keras.layers.LayerNormalization()
         self.final_ff = Dense(embedding_dim//2, activation='relu')
         self.output_layer = Dense(out_dim, activation=out_activation)
-        num_features = (len(numerical_features) if numerical_features is not None else 0) + \
-               (len(categorical_features) if categorical_features is not None else 0)
+        num_features = (len(self.encoder.numerical) if self.encoder.numerical is not None else 0) + \
+               (len(self.encoder.categorical) if self.encoder.categorical is not None else 0)
 
         self.masked_predictions_layer = Dense(units=num_features)
 
@@ -204,8 +204,7 @@ class FTTransformer(tf.keras.Model):
         layer_norm_cls = self.ln(x[:, 0, :])
         layer_norm_cls = self.final_ff(layer_norm_cls)
         output = self.output_layer(layer_norm_cls)
-        masked_preds = self.masked_predictions_layer(x)
-
+        masked_preds = self.masked_predictions_layer(tf.reshape(x, [x.shape[0], -1]))
         output_dict = {"output": output, "masked_preds": masked_preds}
 
         if self.encoder.explainable:
@@ -218,40 +217,30 @@ class FTTransformer(tf.keras.Model):
         return tf.reduce_mean(tf.square(y_true - y_pred))
 
     def train_step(self, data):
-        x, y = data
+        
+        x = data
+        y=x #unmasked input is the output
 
         with tf.GradientTape() as tape:
             y_pred = self(x, training=True)  # Forward pass
 
             # Compute the loss value.
-            # The loss function is configured in `compile()`.
-            loss = self.compiled_loss(
-                y, y_pred["output"], regularization_losses=self.losses)
-
-            # Add masked prediction loss
-            masked_inputs, mask, original_inputs = self.encoder.numerical_embeddings.get_mask()
-            true_masked_vals = tf.boolean_mask(original_inputs, mask, axis=1)
-
-            # You might need to extract 'masked_preds' from 'y_pred' if it contains the masked predictions.
-            # If 'masked_preds' is not in 'y_pred', you need to ensure it's calculated in your forward pass.
-            masked_preds = y_pred.get('masked_preds', None)
-            if masked_preds is not None:
-                masked_loss = self.masked_mse(masked_preds, true_masked_vals)
-                total_loss = loss + 0.1 * masked_loss
-            else:
-                total_loss = loss
+            # The loss function is configured in `compile()`
+            y_true_tensor = tf.cast(tf.concat(list(y.values()), axis=-1),dtype='float32')
+            loss = self.masked_mse(y_true_tensor, y_pred["masked_preds"])
 
         # Compute gradients
         trainable_vars = self.trainable_variables
-        gradients = tape.gradient(total_loss, trainable_vars)
+        gradients = tape.gradient(loss, trainable_vars)
 
         # Update weights
         self.optimizer.apply_gradients(zip(gradients, trainable_vars))
 
         # Update the metrics.
-        # Metrics are configured in `compile()`.
-        self.compiled_metrics.update_state(y, y_pred["output"])
-
-        # Return a dict mapping metric names to current value.
-        # Note that it will include the loss (tracked in self.metrics).
+        for metric in self.metrics:
+            if metric.name == "loss":
+                metric.update_state(loss)
+            else:
+                metric.update_state(y, y_pred["masked_preds"])
+        # Return a dict mapping metric names to current value
         return {m.name: m.result() for m in self.metrics}
