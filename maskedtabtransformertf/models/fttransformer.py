@@ -205,6 +205,7 @@ class FTTransformer(tf.keras.Model):
         layer_norm_cls = self.final_ff(layer_norm_cls)
         output = self.output_layer(layer_norm_cls)
         masked_preds = self.masked_predictions_layer(tf.reshape(x, [x.shape[0], -1]))
+        #TODO remove unneeded output key
         output_dict = {"output": output, "masked_preds": masked_preds}
 
         if self.encoder.explainable:
