@@ -1,11 +1,11 @@
 from setuptools import setup, find_packages
 
 setup(
-    name="tabtransformertf",
+    name="maskedtabtransformertf",
     packages=find_packages(),
-    version="0.0.6",
+    version="0.0.1",
     license="MIT",
-    description="Tab Transformer - TensorFlow",
+    description="Maksed Tab Transformer - TensorFlow",
     author="Antons Ruberts",
     author_email="rubertant@gmail.com",
     keywords=[
