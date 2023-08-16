@@ -69,7 +69,15 @@ def df_to_impute_dataset(dataframe: pd.DataFrame,
     for key, value in df.items():
         dataset[key] = value.to_numpy()[:, tf.newaxis]
 
-    dataset = tf.data.Dataset.from_tensor_slices((dict(dataset), dict(dataset)))
+    #Create a dict for y_true that matches the format of the model output to prevent errors when
+    #calculating metrics. Leave values for "output" and "importances" empty since we do not calculate loss/metrics
+    #using these model outputs
+    y_true = {}
+    y_true["masked_preds"] = dict(dataset)
+    y_true["output"] = None
+    y_true["importances"] = None
+
+    dataset = tf.data.Dataset.from_tensor_slices((dict(dataset), y_true))
 
     if shuffle:
         dataset = dataset.shuffle(buffer_size=len(dataframe))
