@@ -217,31 +217,31 @@ class FTTransformer(tf.keras.Model):
     def masked_mse(self, y_true, y_pred):
         return tf.reduce_mean(tf.square(y_true - y_pred))
 
-    def train_step(self, data):
+    # def train_step(self, data):
         
-        x = data
-        y=x #unmasked input is the output
+    #     x = data
+    #     y=x #unmasked input is the output
 
-        with tf.GradientTape() as tape:
-            y_pred = self(x, training=True)  # Forward pass
+    #     with tf.GradientTape() as tape:
+    #         y_pred = self(x, training=True)  # Forward pass
 
-            # Compute the loss value.
-            # The loss function is configured in `compile()`
-            y_true_tensor = tf.cast(tf.concat(list(y.values()), axis=-1),dtype='float32')
-            loss = self.masked_mse(y_true_tensor, y_pred["masked_preds"])
+    #         # Compute the loss value.
+    #         # The loss function is configured in `compile()`
+    #         y_true_tensor = tf.cast(tf.concat(list(y.values()), axis=-1),dtype='float32')
+    #         loss = self.masked_mse(y_true_tensor, y_pred["masked_preds"])
 
-        # Compute gradients
-        trainable_vars = self.trainable_variables
-        gradients = tape.gradient(loss, trainable_vars)
+    #     # Compute gradients
+    #     trainable_vars = self.trainable_variables
+    #     gradients = tape.gradient(loss, trainable_vars)
 
-        # Update weights
-        self.optimizer.apply_gradients(zip(gradients, trainable_vars))
+    #     # Update weights
+    #     self.optimizer.apply_gradients(zip(gradients, trainable_vars))
 
-        # Update the metrics.
-        for metric in self.metrics:
-            if metric.name == "loss":
-                metric.update_state(loss)
-            else:
-                metric.update_state(y, y_pred["masked_preds"])
-        # Return a dict mapping metric names to current value
-        return {m.name: m.result() for m in self.metrics}
+    #     # Update the metrics.
+    #     for metric in self.metrics:
+    #         if metric.name == "loss":
+    #             metric.update_state(loss)
+    #         else:
+    #             metric.update_state(y, y_pred["masked_preds"])
+    #     # Return a dict mapping metric names to current value
+    #     return {m.name: m.result() for m in self.metrics}
