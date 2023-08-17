@@ -91,19 +91,9 @@ class FTTransformerEncoder(tf.keras.Model):
             )
         self.flatten_transformer_output = Flatten()
 
-        # CLS token
-        w_init = tf.random_normal_initializer()
-        self.cls_weights = tf.Variable(
-            initial_value=w_init(shape=(1, embedding_dim), dtype="float32"),
-            trainable=True,
-        )
 
     def call(self, inputs):
-        # Start with CLS token
-        # cls_tokens = tf.repeat(self.cls_weights, repeats=tf.shape(
-        #     inputs[self.numerical[0]])[0], axis=0)
-        # cls_tokens = tf.expand_dims(cls_tokens, axis=1)
-        # transformer_inputs = [cls_tokens]
+        
         transformer_inputs = []
 
         # If categorical features, add to list
@@ -185,10 +175,7 @@ class FTTransformer(tf.keras.Model):
                 explainable=explainable,
             )
 
-        # mlp layers
-        self.ln = tf.keras.layers.LayerNormalization()
-        self.final_ff = Dense(embedding_dim//2, activation='relu')
-        self.output_layer = Dense(out_dim, activation=out_activation)
+        #Reconstruction layers
         num_features = (len(self.encoder.numerical) if self.encoder.numerical is not None else 0) + \
                (len(self.encoder.categorical) if self.encoder.categorical is not None else 0)
 
@@ -201,12 +188,8 @@ class FTTransformer(tf.keras.Model):
         else:
             x = self.encoder(inputs)
 
-        layer_norm_cls = self.ln(x[:, 0, :])
-        layer_norm_cls = self.final_ff(layer_norm_cls)
-        output = self.output_layer(layer_norm_cls)
         masked_preds = self.masked_predictions_layer(tf.reshape(x, [x.shape[0], -1]))
-        #TODO remove unneeded output key
-        output_dict = {"output": output, "masked_preds": masked_preds}
+        output_dict = {"masked_preds": masked_preds}
 
         if self.encoder.explainable:
             # Explainable models return three outputs
