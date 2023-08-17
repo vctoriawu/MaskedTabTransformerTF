@@ -188,7 +188,7 @@ class FTTransformer(tf.keras.Model):
         else:
             x = self.encoder(inputs)
 
-        masked_preds = self.masked_predictions_layer(tf.reshape(x, [x.shape[0], -1]))
+        masked_preds = self.masked_predictions_layer(tf.reshape(x, [tf.shape(x)[0], -1]))
         output_dict = {"masked_preds": masked_preds}
 
         if self.encoder.explainable:
