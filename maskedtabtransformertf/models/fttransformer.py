@@ -176,10 +176,10 @@ class FTTransformer(tf.keras.Model):
             )
 
         #Reconstruction layers
-        num_features = (len(self.encoder.numerical) if self.encoder.numerical is not None else 0) + \
+        self.num_features = (len(self.encoder.numerical) if self.encoder.numerical is not None else 0) + \
                (len(self.encoder.categorical) if self.encoder.categorical is not None else 0)
 
-        self.masked_predictions_layer = Dense(units=num_features)
+        self.masked_predictions_layer = Dense(units=self.num_features)
 
 
     def call(self, inputs):
@@ -188,9 +188,10 @@ class FTTransformer(tf.keras.Model):
         else:
             x = self.encoder(inputs)
 
-        reshaped_x = tf.reshape(x, [tf.shape(x)[0], -1])
+        print(x.shape)
+        reshaped_x = tf.reshape(x, [-1, self.num_features])
         print(reshaped_x.shape)
-        masked_preds = self.masked_predictions_layer(tf.reshape(x, [tf.shape(x)[0], -1]))
+        masked_preds = self.masked_predictions_layer(reshaped_x)
         output_dict = {"masked_preds": masked_preds}
 
         if self.encoder.explainable:
