@@ -5,6 +5,10 @@ from tensorflow.keras.layers import (
     Dense,
     Flatten,
 )
+from tensorflow.keras.metrics import (
+    Mean,
+)
+
 import math as m
 from tabtransformertf.models.embeddings import CEmbedding, NEmbedding
 
@@ -181,6 +185,8 @@ class FTTransformer(tf.keras.Model):
 
         self.masked_predictions_layer = Dense(units=self.num_features)
 
+        self.loss_tracker = Mean(name="loss")
+
 
     def call(self, inputs):
         if self.encoder.explainable:
@@ -210,7 +216,6 @@ class FTTransformer(tf.keras.Model):
             y_pred = self(x, training=True)  # Forward pass
 
             # Compute the loss value.
-            # The loss function is configured in `compile()`
             y_true_tensor = tf.cast(tf.concat(list(y.values()), axis=-1),dtype='float32')
             loss = self.masked_mse(y_true_tensor, y_pred["masked_preds"])
 
@@ -221,11 +226,29 @@ class FTTransformer(tf.keras.Model):
         # Update weights
         self.optimizer.apply_gradients(zip(gradients, trainable_vars))
 
-        # Update the metrics.
-        for metric in self.metrics:
-            if metric.name == "loss":
-                metric.update_state(loss)
-            else:
-                metric.update_state(y, y_pred["masked_preds"])
-        # Return a dict mapping metric names to current value
+        self.loss_tracker.update_state(loss)
+
         return {m.name: m.result() for m in self.metrics}
+    
+    def test_step(self, data):
+        x = data
+        y=x #unmasked input is the output
+        
+        y_pred = self(x, training=False)
+
+        #Reshape y and calculate loss
+        y_true_tensor = tf.cast(tf.concat(list(y.values()), axis=-1),dtype='float32')
+        loss = self.masked_mse(y_true_tensor, y_pred["masked_preds"])
+
+        self.loss_tracker.update_state(loss)
+        return {m.name: m.result() for m in self.metrics}
+
+        
+        @property
+        def metrics(self):
+            # We list our `Metric` objects here so that `reset_states()` can be
+            # called automatically at the start of each epoch
+            # or at the start of `evaluate()`.
+            # Otherwise they would track average over entire training
+            
+            return[self.loss_tracker]
