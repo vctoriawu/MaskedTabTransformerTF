@@ -37,8 +37,6 @@ class FTTransformerEncoder(tf.keras.Model):
             categorical_features (list): names of categorical features
             numerical_features (list): names of numeric features
             categorical_lookup (dict): dictionary with categorical feature names as keys and adapted StringLookup layers as values
-            out_dim (int): model output dimensions
-            out_activation (str): model output activation
             embedding_dim (int, optional): embedding dimensions. Defaults to 32.
             depth (int, optional): number of transformer blocks. Defaults to 4.
             heads (int, optional): number of attention heads. Defaults to 8.
@@ -146,8 +144,6 @@ class FTTransformerEncoder(tf.keras.Model):
 class FTTransformer(tf.keras.Model):
     def __init__(
         self,
-        out_dim: int,
-        out_activation: str,
         categorical_features: list = None,
         numerical_features: list = None,
         categorical_lookup: dict = None,
