@@ -152,18 +152,27 @@ class NEmbedding(tf.keras.Model):
                     shape=(self.num_features, 1), dtype='float32' # features, n_bins, emb_dim
                 ), trainable=True)
     
-    def mask_inputs(self, inputs, mask_prob=0.15):
+    def mask_inputs(self, inputs, mask_prob=0.15, training=None):
         """
         Randomly mask input values
         """
         
-        # Create a mask tensor of the same shape as inputs
-        mask = tf.random.uniform(shape=tf.shape(inputs)) < mask_prob
+        # Create a column mask tensor
+        column_mask = tf.random.uniform(shape=[tf.shape(inputs)[1]]) < mask_prob
+
+        # Tile the column mask to match the shape of inputs
+        column_mask = tf.tile(tf.expand_dims(column_mask, 0), [tf.shape(inputs)[0], 1])
 
         # Replace masked values with mask token
-        masked_inputs = tf.where(mask, self.MASK_VALUE, inputs)
+        masked_inputs = tf.where(column_mask, self.MASK_VALUE, inputs)
 
-        self.mask = mask
+        # Create a mask tensor of the same shape as inputs
+        # mask = tf.random.uniform(shape=tf.shape(inputs)) < mask_prob
+
+        # Replace masked values with mask token
+        # masked_inputs = tf.where(mask, self.MASK_VALUE, inputs)
+
+        self.mask = column_mask
         self.masked_inputs = masked_inputs
 
     @property
@@ -174,9 +183,12 @@ class NEmbedding(tf.keras.Model):
         emb = self.linear_layers[f](self.embedding_layers[f](data))
         return emb
    
-    def call(self, x):
-        self.mask_inputs(x)
-        x = self.masked_inputs
+    def call(self, x, training=None):
+        if training==True:
+            self.mask_inputs(x)
+            x = self.masked_inputs
+        else:
+            x = x
 
         if self.emb_type == 'ple':
             emb_columns = []

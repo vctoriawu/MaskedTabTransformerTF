@@ -1,6 +1,6 @@
 import numpy as np
 import tensorflow as tf
-from tabtransformertf.models.tabtransformer import TransformerBlock
+from maskedtabtransformertf.models.tabtransformer import TransformerBlock
 from tensorflow.keras.layers import (
     Dense,
     Flatten,
@@ -10,7 +10,8 @@ from tensorflow.keras.metrics import (
 )
 
 import math as m
-from tabtransformertf.models.embeddings import CEmbedding, NEmbedding
+from maskedtabtransformertf.models.embeddings import CEmbedding, NEmbedding
+from keras import backend as K
 
 
 class FTTransformerEncoder(tf.keras.Model):
@@ -22,7 +23,7 @@ class FTTransformerEncoder(tf.keras.Model):
         categorical_data: np.array,
         y: np.array = None,
         task: str = None,
-        embedding_dim: int = 32,
+        embedding_dim: int = 64,
         depth: int = 4,
         heads: int = 8,
         attn_dropout: float = 0.1,
@@ -94,7 +95,7 @@ class FTTransformerEncoder(tf.keras.Model):
         self.flatten_transformer_output = Flatten()
 
 
-    def call(self, inputs):
+    def call(self, inputs, training=None):
         
         transformer_inputs = []
 
@@ -114,7 +115,7 @@ class FTTransformerEncoder(tf.keras.Model):
             for n in self.numerical:
                 num_input.append(inputs[n])
             num_input = tf.stack(num_input, axis=1)[:, :, 0]
-            num_embs = self.numerical_embeddings(num_input)
+            num_embs = self.numerical_embeddings(num_input, training)
             transformer_inputs += [num_embs]
 
         # Prepare for Transformer
@@ -147,7 +148,7 @@ class FTTransformer(tf.keras.Model):
         categorical_features: list = None,
         numerical_features: list = None,
         categorical_lookup: dict = None,
-        embedding_dim: int = 32,
+        embedding_dim: int = 64,
         depth: int = 4,
         heads: int = 8,
         attn_dropout: float = 0.1,
@@ -184,11 +185,11 @@ class FTTransformer(tf.keras.Model):
         self.loss_tracker = Mean(name="loss")
 
 
-    def call(self, inputs):
+    def call(self, inputs, training=None):
         if self.encoder.explainable:
-            x, expl = self.encoder(inputs)
+            x, expl = self.encoder(inputs, training)
         else:
-            x = self.encoder(inputs)
+            x = self.encoder(inputs, training)
 
         reshaped_x = tf.reshape(x, [-1, self.num_features*self.encoder.embedding_dim])
         masked_preds = self.masked_predictions_layer(reshaped_x)
@@ -201,7 +202,20 @@ class FTTransformer(tf.keras.Model):
         return output_dict
 
     def masked_mse(self, y_true, y_pred):
-        return tf.reduce_mean(tf.square(y_true - y_pred))
+            
+        y_true = tf.squeeze(y_true)
+        y_pred = tf.squeeze(y_pred)
+        
+        y_true = tf.cast(y_true, dtype=tf.float32)
+        y_pred = tf.cast(y_pred, dtype=tf.float32)
+
+        nan_mask = K.cast(K.not_equal(y_true, -888), dtype=tf.float32)
+        masked_true = y_true * nan_mask
+        masked_pred = y_pred * nan_mask
+        
+        #divide by the number of present values 
+        loss = K.mean(K.square(masked_true - masked_pred))
+        return loss 
 
     def train_step(self, data):
         
@@ -214,6 +228,8 @@ class FTTransformer(tf.keras.Model):
             # Compute the loss value.
             y_true_tensor = tf.cast(tf.concat(list(y.values()), axis=-1),dtype='float32')
             loss = self.masked_mse(y_true_tensor, y_pred["masked_preds"])
+        
+        #tf.print(y_pred["masked_preds"])
 
         # Compute gradients
         trainable_vars = self.trainable_variables
