@@ -12,7 +12,8 @@ from tensorflow.keras.metrics import (
 import math as m
 from maskedtabtransformertf.models.embeddings import CEmbedding, NEmbedding
 from keras import backend as K
-
+from tensorflow.keras.losses import SparseCategoricalCrossentropy
+from positional_encodings.tf_encodings import TFPositionalEncoding1D
 
 class FTTransformerEncoder(tf.keras.Model):
     def __init__(
@@ -32,6 +33,7 @@ class FTTransformerEncoder(tf.keras.Model):
         numerical_bins: int = None,
         ple_tree_params: dict = {},
         explainable=False,
+        positional = False
     ):
         """FTTransformer Encoder
         Args:
@@ -77,6 +79,12 @@ class FTTransformerEncoder(tf.keras.Model):
                 X=categorical_data,
                 emb_dim=embedding_dim
             )
+        
+        # Add positional encoding
+        if (positional):
+            self.pos_emb = TFPositionalEncoding1D(embedding_dim)
+        else:
+            self.pos_emb = None
 
         # Transformers
         self.transformers = []
@@ -99,6 +107,15 @@ class FTTransformerEncoder(tf.keras.Model):
         
         transformer_inputs = []
 
+        # If numerical features, add to list
+        if len(self.numerical) > 0:
+            num_input = []
+            for n in self.numerical:
+                num_input.append(inputs[n])
+            num_input = tf.stack(num_input, axis=1)[:, :, 0]
+            num_embs = self.numerical_embeddings(num_input, training)
+            transformer_inputs += [num_embs]
+
         # If categorical features, add to list
         if len(self.categorical) > 0:
             cat_input = []
@@ -109,18 +126,13 @@ class FTTransformerEncoder(tf.keras.Model):
             cat_embs = self.categorical_embeddings(cat_input)
             transformer_inputs += [cat_embs]
 
-        # If numerical features, add to list
-        if len(self.numerical) > 0:
-            num_input = []
-            for n in self.numerical:
-                num_input.append(inputs[n])
-            num_input = tf.stack(num_input, axis=1)[:, :, 0]
-            num_embs = self.numerical_embeddings(num_input, training)
-            transformer_inputs += [num_embs]
-
         # Prepare for Transformer
         transformer_inputs = tf.concat(transformer_inputs, axis=1)
         importances = []
+
+        # Add positional embeddings
+        if (self.pos_emb != None):
+            transformer_inputs = transformer_inputs + self.pos_emb(transformer_inputs)
 
         # Pass through Transformer blocks
         for transformer in self.transformers:
@@ -155,8 +167,12 @@ class FTTransformer(tf.keras.Model):
         ff_dropout: float = 0.1,
         numerical_embedding_type: str = None,
         numerical_embeddings: dict = None,
-        explainable=False,
+        explainable: bool = False,
         encoder=None,
+        cat_ra_pressure: bool = False,
+        ra_pressure_weights: list = None,
+        loss_lambda: int = 1,
+        dataloader_mask: bool = False
     ):
         super(FTTransformer, self).__init__()
 
@@ -180,10 +196,20 @@ class FTTransformer(tf.keras.Model):
         self.num_features = (len(self.encoder.numerical) if self.encoder.numerical is not None else 0) + \
                (len(self.encoder.categorical) if self.encoder.categorical is not None else 0)
 
-        self.masked_predictions_layer = Dense(units=self.num_features)
+        self.masked_predictions_layer = Dense(units=(self.num_features+2))
 
         self.loss_tracker = Mean(name="loss")
+        self.sparse_ce_loss = SparseCategoricalCrossentropy(from_logits=True)
+        self.cat_ra_pressure = cat_ra_pressure
 
+        if ra_pressure_weights is not None and not ra_pressure_weights.empty:
+            # Scale inverse frequencies by the highest frequency
+            max_frequency = np.max(ra_pressure_weights)
+            scaled_inverse_frequencies = 1 / (ra_pressure_weights / max_frequency)
+            self.class_weights = scaled_inverse_frequencies
+
+        self.loss_lambda = loss_lambda # how much the categorical loss should affect the total loss
+        self.dataloader_mask = dataloader_mask
 
     def call(self, inputs, training=None):
         if self.encoder.explainable:
@@ -200,6 +226,18 @@ class FTTransformer(tf.keras.Model):
             output_dict["importances"] = expl
 
         return output_dict
+    
+    def calculate_sample_weights(self, y_true):
+        # Create a tensor for class weights
+        class_weights_tensor = tf.constant(self.class_weights, dtype=tf.float32)
+
+        # Cast y_true to int32 before using as indices
+        y_true_int = tf.cast(y_true, dtype=tf.int32)
+
+        # Index the class weights using y_true
+        sample_weights = tf.gather(class_weights_tensor, y_true_int)
+
+        return sample_weights
 
     def masked_mse(self, y_true, y_pred):
             
@@ -211,25 +249,47 @@ class FTTransformer(tf.keras.Model):
 
         nan_mask = K.cast(K.not_equal(y_true, -888), dtype=tf.float32)
         masked_true = y_true * nan_mask
-        masked_pred = y_pred * nan_mask
+
+        if self.cat_ra_pressure: # if the ra pressure is categorcal, use CE loss
+            masked_pred = y_pred[:, :-3] * nan_mask[:, :-1]
+            y_true_ra_pressure = masked_true[:, -1]  # Assuming the last column is "ra_pressure"
+            y_pred_ra_pressure = tf.nn.softmax(y_pred[:, -3:], axis=-1)
+
+            y_true_other = masked_true[:, :-1]  # Assuming the first columns are for numerical predictions
+            y_pred_other = masked_pred
+            
+            #divide by the number of present values 
+            mse_loss = K.mean(K.square(y_true_other - y_pred_other))
+
+            if self.class_weights is not None and not self.class_weights.empty:
+                loss_weights = self.calculate_sample_weights(y_true_ra_pressure)
+                sparse_ce_loss = self.sparse_ce_loss(y_true_ra_pressure, y_pred_ra_pressure, sample_weight=loss_weights) * nan_mask[:, -1]
+            else:
+                sparse_ce_loss = self.sparse_ce_loss(y_true_ra_pressure, y_pred_ra_pressure) * nan_mask[:, -1]
+            total_loss = mse_loss + self.loss_lambda * sparse_ce_loss 
         
-        #divide by the number of present values 
-        loss = K.mean(K.square(masked_true - masked_pred))
-        return loss 
+        else:
+            masked_pred = y_pred * nan_mask
+            mse_loss = K.mean(K.square(masked_true - masked_pred))
+            total_loss = mse_loss
+
+        return total_loss
 
     def train_step(self, data):
         
-        x = data
-        y=x #unmasked input is the output
+        if self.dataloader_mask:
+            x = data[0]
+            y = data[1]
+        else:
+            x = data
+            y = x #unmasked input is the output
 
         with tf.GradientTape() as tape:
             y_pred = self(x, training=True)  # Forward pass
 
             # Compute the loss value.
-            y_true_tensor = tf.cast(tf.concat(list(y.values()), axis=-1),dtype='float32')
+            y_true_tensor = tf.cast(tf.concat(list(y.values()), axis=-1),dtype='float32')#tf.concat(y, axis=-1),dtype='float32')#
             loss = self.masked_mse(y_true_tensor, y_pred["masked_preds"])
-        
-        #tf.print(y_pred["masked_preds"])
 
         # Compute gradients
         trainable_vars = self.trainable_variables
@@ -243,13 +303,17 @@ class FTTransformer(tf.keras.Model):
         return {m.name: m.result() for m in self.metrics}
     
     def test_step(self, data):
-        x = data
-        y=x #unmasked input is the output
+        if self.dataloader_mask:
+            x = data[0]
+            y = data[1]
+        else:
+            x = data
+            y = x #unmasked input is the output
         
         y_pred = self(x, training=False)
 
         #Reshape y and calculate loss
-        y_true_tensor = tf.cast(tf.concat(list(y.values()), axis=-1),dtype='float32')
+        y_true_tensor = tf.cast(tf.concat(list(y.values()), axis=-1),dtype='float32')#y, axis=-1),dtype='float32') #
         loss = self.masked_mse(y_true_tensor, y_pred["masked_preds"])
 
         self.loss_tracker.update_state(loss)

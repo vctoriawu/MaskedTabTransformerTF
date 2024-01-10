@@ -185,8 +185,8 @@ class NEmbedding(tf.keras.Model):
    
     def call(self, x, training=None):
         if training==True:
-            self.mask_inputs(x)
-            x = self.masked_inputs
+            #self.mask_inputs(x)
+            x = x #self.masked_inputs
         else:
             x = x
 
@@ -205,6 +205,7 @@ class NEmbedding(tf.keras.Model):
         return embs
 
 class CEmbedding(tf.keras.Model):
+    MASK_VALUE = -9999.0
     def __init__(
         self,
         feature_names: list,
@@ -218,19 +219,49 @@ class CEmbedding(tf.keras.Model):
         self.category_prep_layers = {}
         self.emb_layers = {}
         for i, c in enumerate(self.features):
-            lookup = tf.keras.layers.StringLookup(vocabulary=list(np.unique(X[:, i])))
-            emb = tf.keras.layers.Embedding(input_dim=lookup.vocabulary_size(), output_dim=self.emb_dim)
+            #lookup = tf.keras.layers.StringLookup(vocabulary=list(np.unique(X[:, i])))
+            emb = tf.keras.layers.Embedding(input_dim=len(np.unique(X[:, i])), output_dim=self.emb_dim)
 
-            self.category_prep_layers[c] = lookup
+            #self.category_prep_layers[c] = lookup
             self.emb_layers[c] = emb
     
     def embed_column(self, f, data):
-        return self.emb_layers[f](self.category_prep_layers[f](data))
+        return self.emb_layers[f](data)#(self.category_prep_layers[f](data))
 
-    def call(self, x):
+    def call(self, x, training=None):
         emb_columns = []
+
+        if training==True:
+            #self.mask_inputs(x)
+            x = x #self.masked_inputs
+        else:
+            x = x
+
         for i, f in enumerate(self.features):
             emb_columns.append(self.embed_column(f, x[:, i]))
         
         embs = tf.stack(emb_columns, axis=1)
         return embs
+    
+    def mask_inputs(self, inputs, mask_prob=0.15, training=None):
+        """
+        Randomly mask input values
+        """
+        
+        # Create a column mask tensor
+        column_mask = tf.random.uniform(shape=[tf.shape(inputs)[1]]) < mask_prob
+
+        # Tile the column mask to match the shape of inputs
+        column_mask = tf.tile(tf.expand_dims(column_mask, 0), [tf.shape(inputs)[0], 1])
+
+        # Replace masked values with mask token
+        masked_inputs = tf.where(column_mask, self.MASK_VALUE, inputs)
+
+        # Create a mask tensor of the same shape as inputs
+        # mask = tf.random.uniform(shape=tf.shape(inputs)) < mask_prob
+
+        # Replace masked values with mask token
+        # masked_inputs = tf.where(mask, self.MASK_VALUE, inputs)
+
+        self.mask = column_mask
+        self.masked_inputs = masked_inputs

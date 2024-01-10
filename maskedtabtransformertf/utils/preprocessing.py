@@ -2,7 +2,7 @@ import math as m
 import numpy as np
 import pandas as pd
 import tensorflow as tf
-from tabtransformertf.utils.helper import corrupt_dataset
+from maskedtabtransformertf.utils.helper import corrupt_dataset, corrupt_dataset_batchwise
 from tqdm import tqdm
 from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
 
@@ -80,6 +80,24 @@ def df_to_pretrain_dataset(
 
     if shuffle:
         dataset = dataset.shuffle(buffer_size=len(x))
+    dataset = dataset.batch(batch_size)
+    dataset = dataset.prefetch(batch_size)
+    return dataset
+
+def df_to_pretrain_dataset_batchwise(
+        x: pd.DataFrame, 
+        shuffle: bool = True, 
+        batch_size: int = 512, 
+        p_replace: float = 0.15,
+        replacement_value = -999.0):
+    
+    x, y = corrupt_dataset_batchwise(x, p_replace, replacement_value, shuffle)
+
+    dataset = {}
+    for key, value in x.items():
+        dataset[key] = value.to_numpy()[:, tf.newaxis]
+        
+    dataset = tf.data.Dataset.from_tensor_slices((dict(dataset), y))
     dataset = dataset.batch(batch_size)
     dataset = dataset.prefetch(batch_size)
     return dataset
