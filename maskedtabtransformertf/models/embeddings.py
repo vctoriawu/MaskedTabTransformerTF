@@ -185,8 +185,8 @@ class NEmbedding(tf.keras.Model):
    
     def call(self, x, training=None):
         if training==True:
-            #self.mask_inputs(x)
-            x = x #self.masked_inputs
+            self.mask_inputs(x)
+            x = self.masked_inputs
         else:
             x = x
 
@@ -232,8 +232,8 @@ class CEmbedding(tf.keras.Model):
         emb_columns = []
 
         if training==True:
-            #self.mask_inputs(x)
-            x = x #self.masked_inputs
+            self.mask_inputs(x)
+            x = self.masked_inputs
         else:
             x = x
 
