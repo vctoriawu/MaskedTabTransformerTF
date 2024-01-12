@@ -196,7 +196,7 @@ class FTTransformer(tf.keras.Model):
         self.num_features = (len(self.encoder.numerical) if self.encoder.numerical is not None else 0) + \
                (len(self.encoder.categorical) if self.encoder.categorical is not None else 0)
 
-        self.masked_predictions_layer = Dense(units=(self.num_features+2))
+        self.masked_predictions_layer = Dense(units=(self.num_features+(len(self.encoder.categorical) if self.encoder.categorical is not None else 0)))
 
         self.loss_tracker = Mean(name="loss")
         self.sparse_ce_loss = SparseCategoricalCrossentropy(from_logits=True)
